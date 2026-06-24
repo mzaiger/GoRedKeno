@@ -728,7 +728,41 @@ function finishGame() {
 
   document.getElementById('playBtn').disabled = false;
   document.getElementById('playBtn').textContent = '▶ Play Again';
-  document.getElementById('playBtn').onclick = function() { resetGame(); };
+  document.getElementById('playBtn').onclick = function() { playAgain(); };
+}
+
+function playAgain() {
+  // Keep chosen picks, just reset draw state and re-run
+  if (running) return;
+  drawn = [];
+  running = false;
+  gameNum = Math.floor(Math.random()*900)+100;
+
+  // Reset board visuals — restore chosen highlights, clear drawn
+  for (let i = 1; i <= 80; i++) {
+    const c = document.getElementById(`k${i}`);
+    c.classList.remove('drawn','drawn-no-match');
+    if (chosen.has(i)) c.classList.add('chosen');
+    else c.classList.remove('chosen');
+  }
+
+  buildStrips();
+  document.getElementById('resultDiv').innerHTML = '';
+  document.getElementById('sbGame').textContent = `GAME ${gameNum}`;
+  document.getElementById('sbStatus').textContent = 'UNOFFICIAL';
+  document.getElementById('statusMsg').textContent = 'Drawing…';
+  document.getElementById('playBtn').disabled = true;
+  drawTicket();
+
+  // Shuffle and draw
+  const pool = Array.from({length:80},(_,i)=>i+1);
+  for (let i=pool.length-1; i>0; i--) {
+    const j=Math.floor(Math.random()*(i+1));
+    [pool[i],pool[j]]=[pool[j],pool[i]];
+  }
+  drawn = pool.slice(0, 20);
+  running = true;
+  drawNext(0);
 }
 
 function resetGame() {
@@ -741,7 +775,6 @@ function resetGame() {
   buildStrips();
   buildBoard();
   document.getElementById('resultDiv').innerHTML = '';
-  document.getElementById('drawCount').textContent = '— / 20 drawn';
   document.getElementById('sbGame').textContent = 'GAME —';
   document.getElementById('sbStatus').textContent = 'UNOFFICIAL';
   
@@ -749,6 +782,7 @@ function resetGame() {
   document.getElementById('playBtn').disabled = false;
   document.getElementById('playBtn').textContent = '▶ Play';
   document.getElementById('playBtn').onclick = startGame;
+  document.getElementById('playBtn').disabled = false;
   updatePickInfo();
   updatePayoutTable();
   drawTicket();
