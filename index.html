@@ -599,14 +599,12 @@ function togglePick(n) {
 
   if (chosen.has(n)) {
     chosen.delete(n);
-    document.getElementById(`k${n}`).classList.remove('chosen');
   } else {
     if (chosen.size >= 5) {
       document.getElementById('statusMsg').textContent = 'Max 5 picks!';
       return;
     }
     chosen.add(n);
-    document.getElementById(`k${n}`).classList.add('chosen');
   }
   updatePickInfo();
   updatePayoutTable();
@@ -647,8 +645,7 @@ function startGame() {
   // Reset visuals
   for (let i = 1; i <= 80; i++) {
     const c = document.getElementById(`k${i}`);
-    c.classList.remove('drawn','drawn-no-match');
-    if (!chosen.has(i)) c.classList.remove('chosen');
+    c.classList.remove('drawn','drawn-no-match','chosen');
   }
   buildStrips();
   document.getElementById('resultDiv').innerHTML = '';
@@ -741,9 +738,7 @@ function playAgain() {
   // Reset board visuals — restore chosen highlights, clear drawn
   for (let i = 1; i <= 80; i++) {
     const c = document.getElementById(`k${i}`);
-    c.classList.remove('drawn','drawn-no-match');
-    if (chosen.has(i)) c.classList.add('chosen');
-    else c.classList.remove('chosen');
+    c.classList.remove('drawn','drawn-no-match','chosen');
   }
 
   buildStrips();
