@@ -528,7 +528,48 @@ const PAYOUT_LABELS = {
 let chosen = new Set();
 let drawn  = [];
 let running = false;
-let gameNum = Math.floor(Math.random()*900)+100;
+
+// ===== GAME NUMBER: time-based start + session counter =====
+function timeBaseGameNum() {
+  const h = new Date().getHours(); // 0-23
+  // 1am=100, 2am=120 ... each hour +20, midnight(0 or 24)=480
+  if (h === 0) return 480;
+  return h * 20 + 80;
+}
+function initGameNum() {
+  // If no session start yet, seed from time; track in sessionStorage
+  let base = sessionStorage.getItem('kenoGameBase');
+  let offset = parseInt(sessionStorage.getItem('kenoGameOffset') || '0');
+  if (!base) {
+    base = timeBaseGameNum();
+    sessionStorage.setItem('kenoGameBase', base);
+    sessionStorage.setItem('kenoGameOffset', '0');
+    offset = 0;
+  }
+  return parseInt(base) + offset;
+}
+function bumpGameNum() {
+  let base   = parseInt(sessionStorage.getItem('kenoGameBase') || timeBaseGameNum());
+  let offset = parseInt(sessionStorage.getItem('kenoGameOffset') || '0') + 1;
+  sessionStorage.setItem('kenoGameBase', base);
+  sessionStorage.setItem('kenoGameOffset', offset);
+  return base + offset;
+}
+let gameNum = initGameNum();
+
+// ===== PERSISTENT PICKS =====
+function saveChosen() {
+  localStorage.setItem('kenoChosen', JSON.stringify([...chosen]));
+}
+function loadChosen() {
+  try {
+    const saved = localStorage.getItem('kenoChosen');
+    if (saved) {
+      const arr = JSON.parse(saved);
+      arr.forEach(n => chosen.add(n));
+    }
+  } catch(e) {}
+}
 
 // ===== TICKET CANVAS =====
 const TICKET_IMG = new Image();
@@ -573,7 +614,26 @@ function drawTicket() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.drawImage(TICKET_IMG, 0, 0, canvas.width, canvas.height);
 
-  // Draw chosen numbers as black lowercase x
+  // ===== TICKET HEADER FIELDS =====
+  // Canvas is 460×828. The "First Game | Last Game | No. Games | Price" row
+  // sits at approximately y=195–232 on the canvas.
+  // Columns (approx): First Game x~46, Last Game x~138, No.Games x~230, Price x~390
+  const FIELD_Y = 218;   // vertical center of the header cells
+  const FIELD_FONT = 'bold 22px Arial, sans-serif';
+  ctx.font = FIELD_FONT;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#111111';
+
+  // First Game
+  ctx.fillText(String(gameNum), 55, FIELD_Y);
+  // Last Game
+  ctx.fillText(String(gameNum), 148, FIELD_Y);
+  // Price — "$1.00"
+  ctx.fillText('$1.00', 360, FIELD_Y);
+
+  // ===== X MARKS =====
+  // Unmatched picks — same dark ink color as ticket
   chosen.forEach(n => {
     const pos = getTicketPos(n);
     ctx.fillStyle = '#4C4439';
@@ -583,7 +643,7 @@ function drawTicket() {
     ctx.fillText('X', pos.x, pos.y);
   });
 
-  // Draw matched (hit) numbers in orange/gold
+  // Matched (hit) numbers — red X
   if (drawn.length > 0) {
     const drawnSet = new Set(drawn);
     chosen.forEach(n => {
@@ -675,6 +735,7 @@ function togglePick(n) {
   }
   updatePickInfo();
   updatePayoutTable();
+  saveChosen();
   drawTicket();
 }
 
@@ -709,6 +770,7 @@ function startGame() {
     document.getElementById('statusMsg').textContent = 'Pick at least 1 number!';
     return;
   }
+  gameNum = bumpGameNum();
   // Reset visuals
   for (let i = 1; i <= 80; i++) {
     const c = document.getElementById(`k${i}`);
@@ -800,7 +862,7 @@ function playAgain() {
   if (running) return;
   drawn = [];
   running = false;
-  gameNum = Math.floor(Math.random()*900)+100;
+  gameNum = bumpGameNum();
 
   // Reset board visuals — restore chosen highlights, clear drawn
   for (let i = 1; i <= 80; i++) {
@@ -830,14 +892,15 @@ function playAgain() {
 function resetGame() {
   if (running) return;
   chosen.clear();
+  saveChosen();
   drawn = [];
   running = false;
-  gameNum = Math.floor(Math.random()*900)+100;
+  gameNum = bumpGameNum();
 
   buildStrips();
   buildBoard();
   document.getElementById('resultDiv').innerHTML = '';
-  document.getElementById('sbGame').textContent = 'GAME —';
+  document.getElementById('sbGame').textContent = `GAME ${gameNum}`;
   document.getElementById('sbStatus').textContent = 'UNOFFICIAL';
   
   document.getElementById('statusMsg').textContent = 'Pick 1–5 numbers then press PLAY';
@@ -878,9 +941,14 @@ document.addEventListener('click', function(e) {
   });
 })();
 
+// Init — restore saved picks from localStorage
+loadChosen();
+buildStrips();
 buildBoard();
 drawTicket();
+updatePickInfo();
 updatePayoutTable();
+document.getElementById('sbGame').textContent = `GAME ${gameNum}`;
 </script>
 </body>
 </html>
