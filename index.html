@@ -642,7 +642,8 @@ function getTicketPos(n) {
   }
 }
 
-function drawTicket() {
+function drawTicket(drawnSoFar) {
+  const revealedSet = new Set(drawnSoFar !== undefined ? drawnSoFar : drawn);
   const canvas = document.getElementById('ticketCanvas');
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -669,7 +670,7 @@ function drawTicket() {
   ctx.fillText('$1.00', 260, FIELD_Y);
 
   // ===== X MARKS =====
-  // Unmatched picks — same dark ink color as ticket
+  // All picks — dark ink
   chosen.forEach(n => {
     const pos = getTicketPos(n);
     ctx.fillStyle = '#4C4439';
@@ -679,11 +680,10 @@ function drawTicket() {
     ctx.fillText('X', pos.x, pos.y);
   });
 
-  // Matched (hit) numbers — red X
-  if (drawn.length > 0) {
-    const drawnSet = new Set(drawn);
+  // Only redden picks that have actually been revealed so far
+  if (revealedSet.size > 0) {
     chosen.forEach(n => {
-      if (drawnSet.has(n)) {
+      if (revealedSet.has(n)) {
         const pos = getTicketPos(n);
         ctx.fillStyle = '#cc0000';
         ctx.font = 'bold 44px Arial Black, Arial';
@@ -858,7 +858,7 @@ function drawNext(idx) {
   // Status bar
   
 
-  if (isMatch) drawTicket();
+  if (isMatch) drawTicket(drawn.slice(0, idx + 1));
 
   setTimeout(() => drawNext(idx+1), speed);
 }
