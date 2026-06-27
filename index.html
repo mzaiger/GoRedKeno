@@ -964,19 +964,56 @@ document.addEventListener('click', function(e) {
   }
 });
 
-// ===== URL TARGET SCROLL =====
+// ===== URL TARGET: ISOLATED VIEW =====
 (function() {
   const params = new URLSearchParams(window.location.search);
   const target = params.get('target');
   if (!target) return;
-  const el = document.getElementById('target-' + target);
-  if (!el) return;
-  // Wait for layout + ticket image
-  window.addEventListener('load', function() {
-    const rect = el.getBoundingClientRect();
-    const elCenterY = rect.top + window.scrollY + rect.height / 2;
-    const scrollTo  = elCenterY - window.innerHeight / 2;
-    window.scrollTo({ top: Math.max(0, scrollTo), behavior: 'smooth' });
+
+  // Hide everything, then show only the target element centered
+  const style = document.createElement('style');
+  style.textContent = `
+    body > *               { display: none !important; }
+    body                   { display: flex; align-items: center; justify-content: center;
+                             padding: 0; min-height: 100vh; background: #111; }
+    #isolated-view         { display: flex !important; align-items: center;
+                             justify-content: center; width: 100vw; min-height: 100vh; }
+  `;
+  document.head.appendChild(style);
+
+  // Create wrapper that will hold just the target element
+  const wrap = document.createElement('div');
+  wrap.id = 'isolated-view';
+  document.body.appendChild(wrap);
+
+  window.addEventListener('DOMContentLoaded', function() {
+    const el = document.getElementById('target-' + target);
+    if (!el) return;
+    wrap.appendChild(el);
+    // For ticket: also need the canvas to redraw once visible
+    if (target === 'ticket') {
+      const canvas = document.getElementById('ticketCanvas');
+      if (canvas) {
+        // Expand display size for isolated view
+        canvas.style.width = '90vw';
+        canvas.style.maxWidth = '460px';
+      }
+    }
+    if (target === 'board') {
+      // Board: include ball strips above and below
+      const stripTop = document.getElementById('stripTop');
+      const stripBot = document.getElementById('stripBottom');
+      const col = document.createElement('div');
+      col.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:0;';
+      if (stripTop) col.appendChild(stripTop);
+      col.appendChild(el);
+      if (stripBot) col.appendChild(stripBot);
+      wrap.innerHTML = '';
+      wrap.appendChild(col);
+      // Match board strip width
+      if (stripTop) stripTop.style.width = el.offsetWidth + 'px';
+      if (stripBot) stripBot.style.width = el.offsetWidth + 'px';
+    }
   });
 })();
 
