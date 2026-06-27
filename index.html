@@ -19,6 +19,64 @@
     min-height: 100vh;
   }
 
+  /* ===== MENU ===== */
+  .menu-btn {
+    position: fixed;
+    top: 12px;
+    right: 14px;
+    z-index: 1000;
+    background: #cc0000;
+    border: 2px solid #ff4444;
+    border-radius: 6px;
+    color: #fff;
+    width: 42px;
+    height: 42px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    cursor: pointer;
+    box-shadow: 0 0 12px rgba(255,0,0,0.5);
+  }
+  .menu-btn span {
+    display: block;
+    width: 22px;
+    height: 3px;
+    background: #fff;
+    border-radius: 2px;
+  }
+  .menu-dropdown {
+    position: fixed;
+    top: 60px;
+    right: 14px;
+    z-index: 1000;
+    background: #1a0000;
+    border: 2px solid #cc0000;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.8);
+    display: none;
+  }
+  .menu-dropdown.open { display: block; }
+  .menu-item {
+    display: block;
+    padding: 12px 20px;
+    color: #ffcccc;
+    font-size: 13px;
+    font-weight: 900;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    text-decoration: none;
+    cursor: pointer;
+    white-space: nowrap;
+    border-bottom: 1px solid #330000;
+    transition: background 0.15s, color 0.15s;
+  }
+  .menu-item:last-child { border-bottom: none; }
+  .menu-item:hover { background: #cc0000; color: #fff; }
+  .menu-item .mi-icon { margin-right: 8px; }
+
   /* ===== HEADER ===== */
   .header {
     display: flex;
@@ -373,6 +431,15 @@
 </head>
 <body>
 
+<!-- Hamburger Menu -->
+<div class="menu-btn" id="menuBtn" onclick="toggleMenu()">
+  <span></span><span></span><span></span>
+</div>
+<div class="menu-dropdown" id="menuDropdown">
+  <a class="menu-item" href="?target=board"><span class="mi-icon">🎲</span>Keno Board</a>
+  <a class="menu-item" href="?target=ticket"><span class="mi-icon">🎟️</span>Keno Ticket</a>
+</div>
+
 <div class="header">
   <div class="go-red-badge">
     <span>GO</span><span>RED</span>
@@ -387,7 +454,7 @@
 
   <!-- LEFT: Ticket + Payout -->
   <div class="left-col">
-    <div class="ticket-wrap">
+    <div class="ticket-wrap" id="target-ticket">
       <canvas id="ticketCanvas" width="460" height="828"></canvas>
     </div>
     <div class="ticket-label">Click ticket grid to pick your numbers</div>
@@ -405,7 +472,7 @@
     <!-- Top ball strip: first 10 drawn -->
     <div class="ball-strip" id="stripTop"></div>
 
-    <div class="keno-board-wrap">
+    <div class="keno-board-wrap" id="target-board">
       <!-- Top section: 1-40 -->
       <div class="board-section top" id="boardTop"></div>
 
@@ -783,8 +850,34 @@ function resetGame() {
   drawTicket();
 }
 
-// Init
-buildStrips();
+// ===== MENU =====
+function toggleMenu() {
+  document.getElementById('menuDropdown').classList.toggle('open');
+}
+document.addEventListener('click', function(e) {
+  const btn = document.getElementById('menuBtn');
+  const dd  = document.getElementById('menuDropdown');
+  if (!btn.contains(e.target) && !dd.contains(e.target)) {
+    dd.classList.remove('open');
+  }
+});
+
+// ===== URL TARGET SCROLL =====
+(function() {
+  const params = new URLSearchParams(window.location.search);
+  const target = params.get('target');
+  if (!target) return;
+  const el = document.getElementById('target-' + target);
+  if (!el) return;
+  // Wait for layout + ticket image
+  window.addEventListener('load', function() {
+    const rect = el.getBoundingClientRect();
+    const elCenterY = rect.top + window.scrollY + rect.height / 2;
+    const scrollTo  = elCenterY - window.innerHeight / 2;
+    window.scrollTo({ top: Math.max(0, scrollTo), behavior: 'smooth' });
+  });
+})();
+
 buildBoard();
 drawTicket();
 updatePayoutTable();
