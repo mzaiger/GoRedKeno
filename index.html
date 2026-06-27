@@ -537,14 +537,24 @@ function timeBaseGameNum() {
   return h * 20 + 80;
 }
 function initGameNum() {
-  // If no session start yet, seed from time; track in sessionStorage
+  // If no session start yet, check localStorage first, then seed from time
   let base = sessionStorage.getItem('kenoGameBase');
   let offset = parseInt(sessionStorage.getItem('kenoGameOffset') || '0');
   if (!base) {
-    base = timeBaseGameNum();
-    sessionStorage.setItem('kenoGameBase', base);
-    sessionStorage.setItem('kenoGameOffset', '0');
-    offset = 0;
+    // Check if we have a saved game num from a previous session
+    const saved = localStorage.getItem('kenoGameNum');
+    if (saved) {
+      // Resume from saved number — use it as the base, offset 0
+      base = parseInt(saved);
+      sessionStorage.setItem('kenoGameBase', base);
+      sessionStorage.setItem('kenoGameOffset', '0');
+      offset = 0;
+    } else {
+      base = timeBaseGameNum();
+      sessionStorage.setItem('kenoGameBase', base);
+      sessionStorage.setItem('kenoGameOffset', '0');
+      offset = 0;
+    }
   }
   return parseInt(base) + offset;
 }
@@ -553,7 +563,9 @@ function bumpGameNum() {
   let offset = parseInt(sessionStorage.getItem('kenoGameOffset') || '0') + 1;
   sessionStorage.setItem('kenoGameBase', base);
   sessionStorage.setItem('kenoGameOffset', offset);
-  return base + offset;
+  const num = base + offset;
+  localStorage.setItem('kenoGameNum', String(num));
+  return num;
 }
 let gameNum = initGameNum();
 
@@ -568,6 +580,28 @@ function loadChosen() {
       const arr = JSON.parse(saved);
       arr.forEach(n => chosen.add(n));
     }
+  } catch(e) {}
+}
+
+// ===== PERSISTENT DRAWN / BOARD STATE =====
+function saveDrawn() {
+  localStorage.setItem('kenoDrawn', JSON.stringify(drawn));
+}
+function loadDrawn() {
+  try {
+    const saved = localStorage.getItem('kenoDrawn');
+    if (saved) drawn = JSON.parse(saved);
+  } catch(e) {}
+}
+
+// ===== PERSISTENT GAME NUMBER =====
+function saveGameNum() {
+  localStorage.setItem('kenoGameNum', String(gameNum));
+}
+function loadGameNum() {
+  try {
+    const saved = localStorage.getItem('kenoGameNum');
+    if (saved) gameNum = parseInt(saved);
   } catch(e) {}
 }
 
@@ -629,6 +663,8 @@ function drawTicket() {
   ctx.fillText(String(gameNum), 55, FIELD_Y);
   // Last Game
   ctx.fillText(String(gameNum), 148, FIELD_Y);
+  // No. Games
+  ctx.fillText('1', 248, FIELD_Y);
   // Price — "$1.00"
   ctx.fillText('$1.00', 360, FIELD_Y);
 
@@ -771,6 +807,7 @@ function startGame() {
     return;
   }
   gameNum = bumpGameNum();
+  localStorage.removeItem('kenoDrawn');  // clear old board state
   // Reset visuals
   for (let i = 1; i <= 80; i++) {
     const c = document.getElementById(`k${i}`);
@@ -828,6 +865,7 @@ function drawNext(idx) {
 
 function finishGame() {
   running = false;
+  saveDrawn();  // persist board state
   const drawnSet = new Set(drawn);
   const matches = [...chosen].filter(n => drawnSet.has(n)).length;
   const picks = chosen.size;
@@ -894,6 +932,7 @@ function resetGame() {
   chosen.clear();
   saveChosen();
   drawn = [];
+  localStorage.removeItem('kenoDrawn');
   running = false;
   gameNum = bumpGameNum();
 
@@ -941,13 +980,64 @@ document.addEventListener('click', function(e) {
   });
 })();
 
-// Init — restore saved picks from localStorage
+// Init — restore full state from localStorage
 loadChosen();
+loadDrawn();
+loadGameNum();
 buildStrips();
 buildBoard();
+
+// Restore board cell colors from saved drawn state
+if (drawn.length > 0) {
+  const drawnSet = new Set(drawn);
+  drawn.forEach((n, idx) => {
+    const isMatch = chosen.has(n);
+    const cell = document.getElementById(`k${n}`);
+    if (cell) {
+      if (isMatch) {
+        cell.classList.add('drawn');
+      } else {
+        cell.classList.add('drawn-no-match', 'drawn');
+      }
+    }
+    // Restore ball strips
+    const stripId = idx < 10 ? 'stripTop' : 'stripBottom';
+    const strip = document.getElementById(stripId);
+    const slotIdx = idx < 10 ? idx : idx - 10;
+    const bs = strip.children[slotIdx];
+    if (bs) {
+      bs.className = isMatch ? 'bs-cell hit' : 'bs-cell drawn';
+      bs.textContent = n;
+    }
+  });
+  // Restore result UI state (show play again, official status)
+  const matches = [...chosen].filter(n => new Set(drawn).has(n)).length;
+  const picks = chosen.size;
+  const payMap = PAYOUTS[picks] || {};
+  const prize = payMap[matches] || 0;
+  const isWin = prize > 0;
+  document.getElementById('sbStatus').textContent = 'OFFICIAL';
+  document.getElementById('statusMsg').textContent =
+    isWin ? `Matched ${matches} — You won $${prize}.00!` :
+    `Matched ${matches} of ${picks}. Better luck next time!`;
+  updatePayoutTable(matches);
+  document.getElementById('resultDiv').innerHTML = `
+    <div class="result-panel ${isWin?'win':'loss'}">
+      <div class="rt ${isWin?'win':'loss'}">${isWin?'🎉 WINNER!':'No Win'}</div>
+      <div class="rs">Picked: <span>${picks}</span></div>
+      <div class="rs">Matched: <span>${matches} of 20</span></div>
+      ${isWin ? `<div class="rp">+$${prize}.00</div>` :
+        '<div style="color:#aa4444;margin-top:6px;font-size:13px">Try again!</div>'}
+    </div>`;
+  document.getElementById('playBtn').disabled = false;
+  document.getElementById('playBtn').textContent = '▶ Play Again';
+  document.getElementById('playBtn').onclick = function() { playAgain(); };
+} else {
+  updatePickInfo();
+  updatePayoutTable();
+}
+
 drawTicket();
-updatePickInfo();
-updatePayoutTable();
 document.getElementById('sbGame').textContent = `GAME ${gameNum}`;
 </script>
 </body>
