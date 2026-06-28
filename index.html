@@ -17,7 +17,6 @@
     overflow-x: hidden;
   }
 
-  /* ── CENTER POPUP ── */
   .center-popup {
     display: none;
     position: fixed;
@@ -50,7 +49,6 @@
     to   { transform: scale(1);   opacity: 1; }
   }
 
-  /* ── BLOCKED OVERLAY ── */
   .blocked-overlay {
     display: none;
     position: fixed;
@@ -96,7 +94,6 @@
   }
   .btn-go-wallet:hover { transform: scale(1.05); }
 
-  /* ── GAME IFRAME ── */
   .game-wrap { width: 100%; flex: 1; position: relative; }
   .game-wrap iframe {
     width: 100%;
@@ -109,12 +106,10 @@
 </head>
 <body>
 
-<!-- CENTER POPUP -->
 <div class="center-popup" id="centerPopup">
   <div class="center-popup-inner" id="centerPopupMsg"></div>
 </div>
 
-<!-- BLOCKED OVERLAY -->
 <div class="blocked-overlay" id="blockedOverlay">
   <div class="bo-icon">⛔</div>
   <div class="bo-msg">OUT OF CREDITS</div>
@@ -122,7 +117,6 @@
   <a class="btn-go-wallet" href="../wallet/index.html">GO TO WALLET</a>
 </div>
 
-<!-- THE GAME -->
 <div class="game-wrap">
   <iframe id="kenoFrame" src="GoRedKeno.html" title="GO RED Keno" allowtransparency="true"></iframe>
 </div>
@@ -157,7 +151,6 @@ function renderHud() {
   else document.getElementById('blockedOverlay').classList.remove('show');
 }
 
-// ── Charge $1 helper — returns true if charge succeeded ──────────────────────
 function charge() {
   const bal = getBalance();
   if (bal <= 0) { renderHud(); return false; }
@@ -165,45 +158,6 @@ function charge() {
   renderHud();
   popup('-$1.00  ·  Balance: $' + newBal, '');
   return true;
-}
-
-// ── Patch iframe functions ────────────────────────────────────────────────────
-function patchIframeFunctions(fw) {
-  try {
-    // ── startGame: only charge if chosen.size >= 1 ──────────────────────────
-    // The game's own startGame() already guards chosen.size === 0 and shows
-    // "Pick at least 1 number!" — we just add the wallet charge before it runs.
-    if (typeof fw.startGame === 'function' && !fw._walletPatched_startGame) {
-      const orig = fw.startGame;
-      fw.startGame = function() {
-        // fw.chosen is the actual Set declared in GoRedKeno.html (line 528)
-        if (!fw.chosen || fw.chosen.size === 0) {
-          // No numbers selected — let the game show its own message, no charge
-          orig.call(fw);
-          return;
-        }
-        if (!charge()) return;  // out of credits — block
-        orig.call(fw);
-      };
-      fw._walletPatched_startGame = true;
-    }
-
-    // ── playAgain: always charge $1 (picks are kept from the previous game) ──
-    if (typeof fw.playAgain === 'function' && !fw._walletPatched_playAgain) {
-      const orig = fw.playAgain;
-      fw.playAgain = function() {
-        if (!charge()) return;
-        orig.call(fw);
-      };
-      fw._walletPatched_playAgain = true;
-    }
-
-    // ── resetGame (New Game button): no charge, just resets ──────────────────
-    // No patch needed — resetGame only clears state, doesn't play.
-
-  } catch(e) {
-    console.warn('[Wallet] patchIframeFunctions error:', e);
-  }
 }
 
 // ── Win detection ─────────────────────────────────────────────────────────────
@@ -240,6 +194,42 @@ function checkForWin(fw) {
   } catch(e) {}
 }
 
+// ── Intercept the play button directly ───────────────────────────────────────
+// The game uses inline onclick="startGame()" which bypasses fw.startGame patches.
+// After a game ends it reassigns playBtn.onclick = playAgain via JS.
+// We intercept all clicks on #playBtn in capture phase — fires before onclick.
+function attachPlayBtnInterceptor(fw) {
+  const playBtn = fw.document.getElementById('playBtn');
+  if (!playBtn) return;
+
+  playBtn.addEventListener('click', function(evt) {
+    if (fw.running) return; // game is mid-draw, let it through
+
+    const btnText = playBtn.textContent.trim();
+    const isPlayAgain = btnText.toLowerCase().includes('again');
+
+    if (isPlayAgain) {
+      // Play Again — always charge $1, picks are kept from last game
+      if (!charge()) {
+        evt.preventDefault();
+        evt.stopImmediatePropagation();
+      }
+    } else {
+      // First Play — only charge if at least 1 number is selected
+      // fw.chosen is the Set declared in GoRedKeno.html
+      if (!fw.chosen || fw.chosen.size === 0) {
+        // No picks — let the game show its own "Pick at least 1 number!" message
+        return;
+      }
+      // Has picks — charge then let the click proceed
+      if (!charge()) {
+        evt.preventDefault();
+        evt.stopImmediatePropagation();
+      }
+    }
+  }, true); // capture phase: fires before the button's own onclick
+}
+
 // ── Iframe load ───────────────────────────────────────────────────────────────
 document.getElementById('kenoFrame').addEventListener('load', function() {
   observerAttached = false;
@@ -247,7 +237,7 @@ document.getElementById('kenoFrame').addEventListener('load', function() {
   try {
     const fw = this.contentWindow;
     setTimeout(function() {
-      patchIframeFunctions(fw);
+      attachPlayBtnInterceptor(fw);
       attachResultObserver(fw);
     }, 200);
   } catch(e) {}
