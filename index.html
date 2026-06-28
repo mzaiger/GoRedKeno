@@ -215,10 +215,17 @@ function attachPlayBtnInterceptor(fw) {
         evt.stopImmediatePropagation();
       }
     } else {
-      // First Play — only charge if at least 1 number is selected
-      // fw.chosen is the Set declared in GoRedKeno.html
-      if (!fw.chosen || fw.chosen.size === 0) {
-        // No picks — let the game show its own "Pick at least 1 number!" message
+      // First Play — only charge if at least 1 number is selected.
+      // fw.chosen is a top-level `let` so it's NOT on window — read from
+      // localStorage instead (the game calls saveChosen() on every pick).
+      let pickedCount = 0;
+      try {
+        const saved = localStorage.getItem('kenoChosen');
+        if (saved) pickedCount = JSON.parse(saved).length;
+      } catch(e) {}
+
+      if (pickedCount === 0) {
+        // No picks — let game show its own "Pick at least 1 number!" message
         return;
       }
       // Has picks — charge then let the click proceed
