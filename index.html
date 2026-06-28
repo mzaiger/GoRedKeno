@@ -159,26 +159,16 @@ function renderHud() {
 }
 
 function spendAndPlay() {
+  const bal = getBalance();
+  if (bal <= 0) { renderHud(); return; }
+  const newBal = setBalance(bal - 1);
+  renderHud();
+  popup('-$1.00  ·  Balance: $' + newBal, '');
   try {
     const fw = document.getElementById('kenoFrame').contentWindow;
-    if (!hasPicks(fw)) {
-      popup('⚠️  Pick some numbers first!', 'lose');
-      return;
-    }
-    const bal = getBalance();
-    if (bal <= 0) { renderHud(); return; }
-    const newBal = setBalance(bal - 1);
-    renderHud();
-    popup('-$1.00  ·  Balance: $' + newBal, '');
     if (typeof fw.startGame === 'function') fw.startGame();
     else if (typeof fw.playAgain === 'function') fw.playAgain();
-  } catch(e) {
-    const bal = getBalance();
-    if (bal <= 0) { renderHud(); return; }
-    const newBal = setBalance(bal - 1);
-    renderHud();
-    popup('-$1.00  ·  Balance: $' + newBal, '');
-  }
+  } catch(e) {}
 }
 
 // ── Result tracking ───────────────────────────────────────────────────────────
@@ -215,31 +205,11 @@ function checkForWin(fw) {
   } catch(e) {}
 }
 
-// ── Check if player has picked any numbers ────────────────────────────────────
-// Tries every common variable name GoRedKeno might use for selected picks.
-function hasPicks(fw) {
-  try {
-    const candidates = ['selectedNums', 'picks', 'playerPicks', 'chosenNums',
-                        'selectedNumbers', 'markedNums', 'userPicks', 'kenopicks'];
-    for (const name of candidates) {
-      if (Array.isArray(fw[name]) && fw[name].length > 0) return true;
-    }
-    // Also try reading selected cells directly from the DOM
-    const marked = fw.document.querySelectorAll('.picked, .selected, .chosen, .keno-pick.active, .num.picked, .cell.picked, .ball.picked');
-    if (marked && marked.length > 0) return true;
-    return false;
-  } catch(e) { return true; } // if we can't tell, don't block
-}
-
 function patchIframeFunctions(fw) {
   try {
     if (typeof fw.startGame === 'function' && !fw._walletPatched_startGame) {
       const orig = fw.startGame;
       fw.startGame = function() {
-        if (!hasPicks(fw)) {
-          popup('⚠️  Pick some numbers first!', 'lose');
-          return; // block entirely — no charge, game doesn't run
-        }
         const bal = getBalance();
         if (bal <= 0) { renderHud(); return; }
         const newBal = setBalance(bal - 1);
@@ -252,10 +222,6 @@ function patchIframeFunctions(fw) {
     if (typeof fw.playAgain === 'function' && !fw._walletPatched_playAgain) {
       const orig = fw.playAgain;
       fw.playAgain = function() {
-        if (!hasPicks(fw)) {
-          popup('⚠️  Pick some numbers first!', 'lose');
-          return;
-        }
         const bal = getBalance();
         if (bal <= 0) { renderHud(); return; }
         const newBal = setBalance(bal - 1);
