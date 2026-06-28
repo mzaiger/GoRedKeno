@@ -66,11 +66,12 @@
     cursor: pointer;
     text-decoration: none;
     transition: transform 0.15s, filter 0.15s;
+    background: none;
   }
   .hud-btn:hover { transform: scale(1.06); filter: brightness(1.15); }
   .btn-wallet { background: #1a1a00; border-color: #ffd700; color: #ffd700; }
-  .btn-play  { background: #cc0000; border-color: #ff4444; color: #fff; }
-  .btn-play:disabled, .btn-play[disabled] {
+  .btn-play   { background: #cc0000; border-color: #ff4444; color: #fff; }
+  .btn-play:disabled {
     background: #550000; border-color: #660000; color: #aa6666;
     cursor: not-allowed; transform: none; filter: none;
   }
@@ -169,7 +170,7 @@
     $<span id="hudAmt">0</span>.00
   </div>
   <div class="hud-actions">
-    <a class="hud-btn btn-wallet" href="../wallet/wallet.html">← WALLET</a>
+    <a class="hud-btn btn-wallet" href="../wallet/index.html">← WALLET</a>
     <button class="hud-btn btn-play" id="btnPlayKeno" onclick="spendAndPlay()">▶ NEW GAME ($1)</button>
   </div>
 </div>
@@ -182,7 +183,7 @@
   <div class="bo-icon">⛔</div>
   <div class="bo-msg">OUT OF CREDITS</div>
   <div class="bo-sub">You need at least $1.00 to play GO RED Keno.</div>
-  <a class="btn-go-wallet" href="../wallet/wallet.html">GO TO WALLET</a>
+  <a class="btn-go-wallet" href="../wallet/index.html">GO TO WALLET</a>
 </div>
 
 <!-- THE GAME -->
@@ -212,112 +213,152 @@ function toast(msg, type) {
   t.textContent = msg;
   t.className = 'hud-toast show ' + (type || '');
   clearTimeout(_toastTmr);
-  _toastTmr = setTimeout(() => t.classList.remove('show'), 3500);
+  _toastTmr = setTimeout(() => t.classList.remove('show'), 4000);
 }
 
 // ─── RENDER HUD ───────────────────────────────────────────────────────────────
 function renderHud() {
   const bal = getBalance();
   document.getElementById('hudAmt').textContent = bal.toFixed(0);
-  const playBtn = document.getElementById('btnPlayKeno');
+  const btn = document.getElementById('btnPlayKeno');
   if (bal <= 0) {
-    playBtn.disabled = true;
+    btn.disabled = true;
     document.getElementById('blockedOverlay').classList.add('show');
   } else {
-    playBtn.disabled = false;
+    btn.disabled = false;
     document.getElementById('blockedOverlay').classList.remove('show');
   }
 }
 
-// ─── SPEND $1 AND TELL IFRAME TO PLAY ────────────────────────────────────────
+// ─── SPEND $1 AND TRIGGER GAME ───────────────────────────────────────────────
 function spendAndPlay() {
   const bal = getBalance();
   if (bal <= 0) { renderHud(); return; }
   const newBal = setBalance(bal - 1);
   renderHud();
-  toast(`-$1.00 · Balance: $${newBal}`, '');
-  // Tell the iframe to start a new game
-  const frame = document.getElementById('kenoFrame');
+  toast('-$1.00 · Balance: $' + newBal, '');
   try {
-    frame.contentWindow.postMessage({ type: 'WALLET_NEW_GAME' }, '*');
-  } catch(e) {}
-  // Also try direct call if same origin
-  try {
-    const fw = frame.contentWindow;
-    if (fw.startGame) fw.startGame();
-    else if (fw.playAgain) fw.playAgain();
+    const fw = document.getElementById('kenoFrame').contentWindow;
+    if (typeof fw.startGame === 'function') fw.startGame();
+    else if (typeof fw.playAgain === 'function') fw.playAgain();
   } catch(e) {}
 }
 
-// ─── LISTEN FOR WIN/LOSE FROM IFRAME ─────────────────────────────────────────
-window.addEventListener('message', function(e) {
-  const d = e.data;
-  if (!d || typeof d !== 'object') return;
-  if (d.type === 'KENO_RESULT') {
-    if (d.prize > 0) {
-      const newBal = setBalance(getBalance() + d.prize);
-      renderHud();
-      toast(`🎉 You won $${d.prize}! Balance: $${newBal}`, 'win');
-    } else {
-      toast('No match. Better luck next time!', 'lose');
-    }
+// ─── RESULT TRACKING STATE ────────────────────────────────────────────────────
+// Prevents double-crediting the same game result
+let lastCreditedGameNum = null;
+let observerAttached = false;
+
+// ─── ATTACH MUTATION OBSERVER TO #resultDiv INSIDE IFRAME ────────────────────
+function attachResultObserver(fw) {
+  if (observerAttached) return;
+
+  const resultDiv = fw.document.getElementById('resultDiv');
+  if (!resultDiv) {
+    // DOM not ready yet — retry shortly
+    setTimeout(() => attachResultObserver(fw), 300);
+    return;
   }
-});
 
-// ─── INTERCEPT GAME'S OWN PLAY BUTTON ────────────────────────────────────────
-// After iframe loads, patch finishGame to post results back up
-document.getElementById('kenoFrame').addEventListener('load', function() {
+  observerAttached = true;
+  console.log('[Wallet] MutationObserver attached to #resultDiv');
+
+  const observer = new MutationObserver(function() {
+    checkForWin(fw);
+  });
+
+  observer.observe(resultDiv, { childList: true, subtree: true });
+}
+
+// ─── CHECK WIN INSIDE IFRAME ──────────────────────────────────────────────────
+function checkForWin(fw) {
   try {
-    const fw = this.contentWindow;
-    const orig = fw.finishGame;
-    if (orig) {
-      fw.finishGame = function() {
-        orig.call(fw);
-        // Read prize from the just-finished game
-        try {
-          const drawn = fw.drawn || [];
-          const chosen = fw.chosen || new Set();
-          const PAYOUTS = fw.PAYOUTS || {};
-          const drawnSet = new Set(drawn);
-          const matches = [...chosen].filter(n => drawnSet.has(n)).length;
-          const picks = chosen.size;
-          const payMap = PAYOUTS[picks] || {};
-          const prize = payMap[matches] || 0;
-          window.postMessage({ type: 'KENO_RESULT', prize: prize }, '*');
-        } catch(err) {}
-      };
-    }
+    // Only fire when game is OFFICIAL (finished)
+    const sbStatus = fw.document.getElementById('sbStatus');
+    if (!sbStatus || sbStatus.textContent.trim() !== 'OFFICIAL') return;
 
-    // Patch startGame to also check wallet
-    const origStart = fw.startGame;
-    if (origStart) {
+    // Get the current game number to avoid double crediting
+    const currentGameNum = fw.gameNum || null;
+    if (currentGameNum !== null && currentGameNum === lastCreditedGameNum) return;
+
+    // Look for the win panel: .result-panel.win and .rp with "+$X.00"
+    const winPanel = fw.document.querySelector('.result-panel.win');
+    if (!winPanel) return; // loss — nothing to credit
+
+    const rpEl = winPanel.querySelector('.rp');
+    if (!rpEl) return;
+
+    const match = rpEl.textContent.match(/\$([0-9]+)/);
+    if (!match) return;
+
+    const prize = parseInt(match[1], 10);
+    if (!prize || prize <= 0) return;
+
+    // Credit the win
+    lastCreditedGameNum = currentGameNum;
+    const newBal = setBalance(getBalance() + prize);
+    renderHud();
+    toast('🎉 Matched! You won $' + prize + '! Balance: $' + newBal, 'win');
+    console.log('[Wallet] Win credited: $' + prize + ' — new balance $' + newBal);
+
+  } catch(e) {
+    console.warn('[Wallet] checkForWin error:', e);
+  }
+}
+
+// ─── ALSO PATCH startGame / playAgain SO IFRAME BUTTONS COST $1 ──────────────
+function patchIframeFunctions(fw) {
+  try {
+    // Patch startGame
+    if (typeof fw.startGame === 'function' && !fw._walletPatched_startGame) {
+      const orig = fw.startGame;
       fw.startGame = function() {
         const bal = getBalance();
-        if (bal <= 0) {
-          renderHud();
-          return;
-        }
+        if (bal <= 0) { renderHud(); return; }
         const newBal = setBalance(bal - 1);
         renderHud();
-        toast(`-$1.00 · Balance: $${newBal}`, '');
-        origStart.call(fw);
+        toast('-$1.00 · Balance: $' + newBal, '');
+        orig.call(fw);
       };
+      fw._walletPatched_startGame = true;
     }
 
-    // Patch playAgain similarly
-    const origAgain = fw.playAgain;
-    if (origAgain) {
+    // Patch playAgain
+    if (typeof fw.playAgain === 'function' && !fw._walletPatched_playAgain) {
+      const orig = fw.playAgain;
       fw.playAgain = function() {
         const bal = getBalance();
         if (bal <= 0) { renderHud(); return; }
         const newBal = setBalance(bal - 1);
         renderHud();
-        toast(`-$1.00 · Balance: $${newBal}`, '');
-        origAgain.call(fw);
+        toast('-$1.00 · Balance: $' + newBal, '');
+        orig.call(fw);
       };
+      fw._walletPatched_playAgain = true;
     }
+
+    console.log('[Wallet] iframe functions patched');
   } catch(e) {
-    // cross-origin: wallet HUD still works for external nav
+    console.warn('[Wallet] patchIframeFunctions error:', e);
+  }
+}
+
+// ─── IFRAME LOAD HANDLER ──────────────────────────────────────────────────────
+document.getElementById('kenoFrame').addEventListener('load', function() {
+  observerAttached = false; // reset on each load
+  lastCreditedGameNum = null;
+
+  try {
+    const fw = this.contentWindow;
+
+    // Give the iframe scripts a moment to fully execute
+    setTimeout(function() {
+      patchIframeFunctions(fw);
+      attachResultObserver(fw);
+    }, 200);
+
+  } catch(e) {
+    console.warn('[Wallet] iframe load handler error:', e);
   }
 });
 
