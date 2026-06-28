@@ -153,25 +153,60 @@ function popup(msg, type) {
 
 function renderHud() {
   const bal = getBalance();
-  const blocked = document.getElementById('blockedOverlay');
-  if (bal <= 0) blocked.classList.add('show');
-  else blocked.classList.remove('show');
+  if (bal <= 0) document.getElementById('blockedOverlay').classList.add('show');
+  else document.getElementById('blockedOverlay').classList.remove('show');
 }
 
-function spendAndPlay() {
+// ── Charge $1 helper — returns true if charge succeeded ──────────────────────
+function charge() {
   const bal = getBalance();
-  if (bal <= 0) { renderHud(); return; }
+  if (bal <= 0) { renderHud(); return false; }
   const newBal = setBalance(bal - 1);
   renderHud();
   popup('-$1.00  ·  Balance: $' + newBal, '');
-  try {
-    const fw = document.getElementById('kenoFrame').contentWindow;
-    if (typeof fw.startGame === 'function') fw.startGame();
-    else if (typeof fw.playAgain === 'function') fw.playAgain();
-  } catch(e) {}
+  return true;
 }
 
-// ── Result tracking ───────────────────────────────────────────────────────────
+// ── Patch iframe functions ────────────────────────────────────────────────────
+function patchIframeFunctions(fw) {
+  try {
+    // ── startGame: only charge if chosen.size >= 1 ──────────────────────────
+    // The game's own startGame() already guards chosen.size === 0 and shows
+    // "Pick at least 1 number!" — we just add the wallet charge before it runs.
+    if (typeof fw.startGame === 'function' && !fw._walletPatched_startGame) {
+      const orig = fw.startGame;
+      fw.startGame = function() {
+        // fw.chosen is the actual Set declared in GoRedKeno.html (line 528)
+        if (!fw.chosen || fw.chosen.size === 0) {
+          // No numbers selected — let the game show its own message, no charge
+          orig.call(fw);
+          return;
+        }
+        if (!charge()) return;  // out of credits — block
+        orig.call(fw);
+      };
+      fw._walletPatched_startGame = true;
+    }
+
+    // ── playAgain: always charge $1 (picks are kept from the previous game) ──
+    if (typeof fw.playAgain === 'function' && !fw._walletPatched_playAgain) {
+      const orig = fw.playAgain;
+      fw.playAgain = function() {
+        if (!charge()) return;
+        orig.call(fw);
+      };
+      fw._walletPatched_playAgain = true;
+    }
+
+    // ── resetGame (New Game button): no charge, just resets ──────────────────
+    // No patch needed — resetGame only clears state, doesn't play.
+
+  } catch(e) {
+    console.warn('[Wallet] patchIframeFunctions error:', e);
+  }
+}
+
+// ── Win detection ─────────────────────────────────────────────────────────────
 let lastCreditedGameNum = null;
 let observerAttached = false;
 
@@ -205,35 +240,7 @@ function checkForWin(fw) {
   } catch(e) {}
 }
 
-function patchIframeFunctions(fw) {
-  try {
-    if (typeof fw.startGame === 'function' && !fw._walletPatched_startGame) {
-      const orig = fw.startGame;
-      fw.startGame = function() {
-        const bal = getBalance();
-        if (bal <= 0) { renderHud(); return; }
-        const newBal = setBalance(bal - 1);
-        renderHud();
-        popup('-$1.00  ·  Balance: $' + newBal, '');
-        orig.call(fw);
-      };
-      fw._walletPatched_startGame = true;
-    }
-    if (typeof fw.playAgain === 'function' && !fw._walletPatched_playAgain) {
-      const orig = fw.playAgain;
-      fw.playAgain = function() {
-        const bal = getBalance();
-        if (bal <= 0) { renderHud(); return; }
-        const newBal = setBalance(bal - 1);
-        renderHud();
-        popup('-$1.00  ·  Balance: $' + newBal, '');
-        orig.call(fw);
-      };
-      fw._walletPatched_playAgain = true;
-    }
-  } catch(e) {}
-}
-
+// ── Iframe load ───────────────────────────────────────────────────────────────
 document.getElementById('kenoFrame').addEventListener('load', function() {
   observerAttached = false;
   lastCreditedGameNum = null;
