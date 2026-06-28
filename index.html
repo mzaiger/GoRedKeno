@@ -161,10 +161,11 @@ function renderHud() {
 function spendAndPlay() {
   try {
     const fw = document.getElementById('kenoFrame').contentWindow;
-    if (!hasPicks(fw)) {
+    if (!fw._picksActive) {
       popup('⚠️  Pick some numbers first!', 'lose');
       return;
     }
+    fw._picksActive = false;
     const bal = getBalance();
     if (bal <= 0) { renderHud(); return; }
     const newBal = setBalance(bal - 1);
@@ -215,31 +216,50 @@ function checkForWin(fw) {
   } catch(e) {}
 }
 
-// ── Check if player has picked any numbers ────────────────────────────────────
-// Tries every common variable name GoRedKeno might use for selected picks.
-function hasPicks(fw) {
+// ── Track whether player has picked numbers via click observation ─────────────
+// We watch clicks inside the iframe on the keno number grid. When a number
+// cell is clicked we set _picksActive=true. When a "Clear" or "New Game"
+// action fires we reset it. This avoids reading the game's internal state
+// (which may already be cleared by the time startGame is called).
+function observePickClicks(fw) {
+  if (fw._pickObserverAttached) return;
   try {
-    const candidates = ['selectedNums', 'picks', 'playerPicks', 'chosenNums',
-                        'selectedNumbers', 'markedNums', 'userPicks', 'kenopicks'];
-    for (const name of candidates) {
-      if (Array.isArray(fw[name]) && fw[name].length > 0) return true;
-    }
-    // Also try reading selected cells directly from the DOM
-    const marked = fw.document.querySelectorAll('.picked, .selected, .chosen, .keno-pick.active, .num.picked, .cell.picked, .ball.picked');
-    if (marked && marked.length > 0) return true;
-    return false;
-  } catch(e) { return true; } // if we can't tell, don't block
+    fw.document.addEventListener('click', function(evt) {
+      const t = evt.target;
+      // Any click on a number cell counts as picking
+      if (t.closest && (
+          t.closest('.keno-num') || t.closest('.keno-ball') ||
+          t.closest('.num-cell') || t.closest('.pick-cell') ||
+          t.closest('.keno-grid td') || t.closest('.keno-grid div') ||
+          t.closest('[data-num]') || t.closest('[data-number]') ||
+          t.closest('.board-num') || t.closest('.keno-number') ||
+          t.closest('#kenoBoard td') || t.closest('#kenoBoard div') ||
+          t.closest('#numGrid td') || t.closest('#numGrid div') ||
+          t.closest('#pickGrid td') || t.closest('#pickGrid div')
+      )) {
+        fw._picksActive = true;
+      }
+      // Clicking Clear / New Game resets the flag
+      const txt = (t.textContent || '').trim().toUpperCase();
+      if (txt === 'CLEAR' || txt === 'NEW GAME' || txt === 'NEW TICKET' || txt === 'RESET') {
+        fw._picksActive = false;
+      }
+    }, true);
+    fw._pickObserverAttached = true;
+  } catch(e) {}
 }
 
 function patchIframeFunctions(fw) {
+  observePickClicks(fw);
   try {
     if (typeof fw.startGame === 'function' && !fw._walletPatched_startGame) {
       const orig = fw.startGame;
       fw.startGame = function() {
-        if (!hasPicks(fw)) {
+        if (!fw._picksActive) {
           popup('⚠️  Pick some numbers first!', 'lose');
           return; // block entirely — no charge, game doesn't run
         }
+        fw._picksActive = false; // reset after a valid play
         const bal = getBalance();
         if (bal <= 0) { renderHud(); return; }
         const newBal = setBalance(bal - 1);
