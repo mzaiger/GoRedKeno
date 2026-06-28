@@ -252,10 +252,6 @@ function patchIframeFunctions(fw) {
     if (typeof fw.playAgain === 'function' && !fw._walletPatched_playAgain) {
       const orig = fw.playAgain;
       fw.playAgain = function() {
-        if (!hasPicks(fw)) {
-          popup('⚠️  Pick some numbers first!', 'lose');
-          return;
-        }
         const bal = getBalance();
         if (bal <= 0) { renderHud(); return; }
         const newBal = setBalance(bal - 1);
